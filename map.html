@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="kk">
+<head>
+  <meta charset="utf-8" />
+  <title>Қазақстан — Zn / Cu / Cd таралу картасы</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    html,body,#map{height:100%;margin:0;padding:0;font-family:Arial, Helvetica, sans-serif}
+    #topbar{
+      position: absolute; left:14px; top:14px; z-index:1000;
+      background: rgba(255,255,255,0.95); padding:12px 14px; border-radius:8px;
+      box-shadow:0 4px 12px rgba(0,0,0,0.12); min-width:260px;
+    }
+    #topbar h2{margin:0 0 6px 0;font-size:15px;color:#2d4b2a}
+    #topbar p{margin:0;font-size:13px;color:#444}
+    .btns { margin-top:8px; display:flex; gap:8px; }
+    .btn { padding:6px 10px; border-radius:6px; cursor:pointer; border:1px solid #ddd; background:#fff; font-weight:600; }
+    .btn.active { background:#2d4b2a; color:#fff; border-color:#2d4b2a; }
+    .legend {
+      position:absolute; right:14px; bottom:14px; z-index:1000;
+      background: rgba(255,255,255,0.95); padding:10px 12px; border-radius:8px;
+      box-shadow:0 4px 12px rgba(0,0,0,0.12); font-size:13px;
+    }
+    .legend .bar{ height:12px; width:180px; border-radius:6px; margin:6px 0; background: linear-gradient(90deg,#33cc33,#ffd700,#ff3333); border:1px solid #ccc}
+    small{color:#666}
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div id="topbar">
+    <h2>Zn · Cu · Cd — 5 өңір бойынша (демо)</h2>
+    <p>Көрсету: <small>Алматы, Қарағанды, Өскемен, Атырау, Қызылорда</small></p>
+    <div class="btns">
+      <button id="btnZn" class="btn active">Zn (Мырыш)</button>
+      <button id="btnCu" class="btn">Cu (Мыс)</button>
+      <button id="btnCd" class="btn">Cd (Кадмий)</button>
+    </div>
+    <p style="margin-top:8px;font-size:12px;color:#444">Нұсқау: батырманы басып, әр элементтің картаға қалай түс өзгеретінін көр. Маркерді бассаң — толық мән шығады.</p>
+  </div>
+
+  <div class="legend">
+    <div style="font-weight:700">Түс шкаласы</div>
+    <div class="bar"></div>
+    <div style="display:flex;justify-content:space-between;font-size:12px">
+      <span>Төмен (жасыл)</span><span>Орта (сары)</span><span>Көп (қызыл)</span>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // ========== 1) Деректер: сен берген нақты мәндер ==========
+    const points = [
+      { name: "Алматы (KazNU park)", lat: 43.20, lon: 76.89, zn: 2.9600, cu: 0.3900, cd: 0.0800 },
+      { name: "Қарағанды (School No.101)", lat: 49.81, lon: 73.09, zn: 84.4000, cu: 0.1000, cd: 0.1000 },
+      { name: "Өскемен (Ust-Kamenogorsk)", lat: 49.95, lon: 82.63, zn: 26.1100, cu: 2.3900, cd: 0.4700 },
+      { name: "Атырау (Refinery zone)", lat: 47.10, lon: 51.90, zn: 2.3000, cu: 0.4000, cd: 0.1500 },
+      { name: "Қызылорда (Railway st.)", lat: 44.83, lon: 65.50, zn: 8.1500, cu: 2.1200, cd: 0.1500 }
+    ];
+
+    // ========== 2) Карта құру ==========
+    const map = L.map('map', {zoomControl:true}).setView([47.5,68.5], 5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18, attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+
+    // ========== 3) Қолда бар мәндер бойынша min/max табу ==========
+    function minMax(arr, key){
+      const vals = arr.map(d => +d[key]);
+      return { min: Math.min(...vals), max: Math.max(...vals) };
+    }
+    const mmZn = minMax(points,'zn');
+    const mmCu = minMax(points,'cu');
+    const mmCd = minMax(points,'cd');
+
+    // ========== 4) Түсті интерполяция функциясы (жасыл->сары->қызыл) ==========
+    // valueNorm: 0..1
+    function interpColor(valueNorm){
+      // valueNorm between 0..1
+      // interpolate green (#33cc33) -> yellow (#ffd700) -> red (#ff3333)
+      function hexToRgb(hex){
+        hex = hex.replace('#','');
+        return [parseInt(hex.substr(0,2),16), parseInt(hex.substr(2,2),16), parseInt(hex.substr(4,2),16)];
+      }
+      function rgbToHex(r,g,b){
+        return '#' + [r,g,b].map(x => x.toString(16).padStart(2,'0')).join('');
+      }
+      const g = hexToRgb('#33cc33'), y = hexToRgb('#ffd700'), r = hexToRgb('#ff3333');
+      if(valueNorm <= 0.5){
+        // between green and yellow
+        const t = valueNorm / 0.5;
+        const R = Math.round(g[0] + (y[0]-g[0])*t);
+        const G = Math.round(g[1] + (y[1]-g[1])*t);
+        const B = Math.round(g[2] + (y[2]-g[2])*t);
+        return rgbToHex(R,G,B);
+      } else {
+        // between yellow and red
+        const t = (valueNorm - 0.5) / 0.5;
+        const R = Math.round(y[0] + (r[0]-y[0])*t);
+        const G = Math.round(y[1] + (r[1]-y[1])*t);
+        const B = Math.round(y[2] + (r[2]-y[2])*t);
+        return rgbToHex(R,G,B);
+      }
+    }
+
+    // Normalize helper
+    function normalize(v, min, max){
+      if(max === min) return 0;
+      return Math.max(0, Math.min(1, (v - min) / (max - min)));
+    }
+
+    // ========== 5) Үлкен шеңбер арқылы "аймақты толық бояу" эффектісін беру ==========
+    // radiusMeters — әр нүктенің аймақты қаншалық шамамен қамтитыны (м)
+    const radiusMeters = 90000; // ~90 км — өңір көлемін имитациялау үшін (қажет болса өзгертуге болады)
+
+    // LayerGroup-тар
+    const layerZn = L.layerGroup().addTo(map);
+    const layerCu = L.layerGroup();
+    const layerCd = L.layerGroup();
+
+    // Функция: қабатты құру
+    function buildLayerFor(key, layer, mm){
+      layer.clearLayers();
+      points.forEach(p => {
+        const value = +p[key];
+        const norm = normalize(value, mm.min, mm.max);
+        const color = interpColor(norm);
+        const circle = L.circle([p.lat, p.lon], {
+          radius: radiusMeters,
+          color: '#333',
+          weight: 1,
+          fillColor: color,
+          fillOpacity: 0.65
+        }).bindPopup(
+          `<b>${p.name}</b><br>${key.toUpperCase()}: ${value} мг/кг`
+        );
+        layer.addLayer(circle);
+      });
+    }
+
+    // Қабаттарды құру
+    buildLayerFor('zn', layerZn, mmZn);
+    buildLayerFor('cu', layerCu, mmCu);
+    buildLayerFor('cd', layerCd, mmCd);
+
+    // Басында Zn көрсетіліп тұр (әр батырма арқылы ауыстыру)
+    function showLayer(layerToShow){
+      map.eachLayer(function(l){
+        // сақтап тұрған базалық плитканы жоймаймыз — тек біздің layer-лерді өңдейміз
+      });
+      // жойып қайта қосу — жеңіл тәсіл
+      [layerZn, layerCu, layerCd].forEach(l => { if(map.hasLayer(l)) map.removeLayer(l); });
+      map.addLayer(layerToShow);
+      // центр таңдау — барлық нүктелерді көрсететін bounds
+      const latlngs = points.map(p => [p.lat, p.lon]);
+      map.fitBounds(latlngs, {padding:[40,40]});
+    }
+
+    // алғашқы көрсетілім
+    showLayer(layerZn);
+
+    // батырмаларға оқиға байлау
+    document.getElementById('btnZn').addEventListener('click', function(){
+      document.querySelectorAll('.btn').forEach(b=>b.classList.remove('active'));
+      this.classList.add('active');
+      showLayer(layerZn);
+    });
+    document.getElementById('btnCu').addEventListener('click', function(){
+      document.querySelectorAll('.btn').forEach(b=>b.classList.remove('active'));
+      this.classList.add('active');
+      showLayer(layerCu);
+    });
+    document.getElementById('btnCd').addEventListener('click', function(){
+      document.querySelectorAll('.btn').forEach(b=>b.classList.remove('active'));
+      this.classList.add('active');
+      showLayer(layerCd);
+    });
+
+    // Қосымша: нүкте кішірейту/үлкейту үшін масштаб өзгергенде radius өзгерту керек болса қосуға болады.
+    // Қазір статикалық radiusMeters қолданылады. Қажет болса экран/zoom-ға байланысты реттеймін.
+  </script>
+</body>
+</html>
+
+
